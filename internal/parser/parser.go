@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/gomarkdown/markdown/ast"
@@ -31,15 +32,37 @@ type DocumentItem struct {
 
 type Document struct {
 	DocumentItems []*DocumentItem
-	//	parent        *DocumentItem
+	parentStack   []*DocumentItem
 }
 
-func (d *Document) getNodeRecur(node ast.Node, parent *DocumentItem, fn func(parent *DocumentItem, item *DocumentItem, depht int), depth int) {
+func (d *Document) Push(di *DocumentItem) {
+	d.parentStack = append(d.parentStack, di)
+}
+
+func (d *Document) Pop() (*DocumentItem, bool) {
+	lenStack := len(d.parentStack)
+	if lenStack == 0 {
+		return nil, false
+	}
+	di := d.parentStack[lenStack-1]
+	d.parentStack = d.parentStack[0 : lenStack-1]
+	return di, true
+}
+
+func (d *Document) Current() (*DocumentItem, bool) {
+	lenStack := len(d.parentStack)
+	if lenStack == 0 {
+		return nil, false
+	}
+	di := d.parentStack[lenStack-1]
+	return di, true
+}
+
+func (d *Document) getNodeRecur(node ast.Node, parent *DocumentItem, fn func(parent *DocumentItem, item *DocumentItem, depht int), depth int) error {
 	if node == nil {
-		return
+		return errors.New("empty node")
 	}
 
-	//content := shortenString(getContent(node), 40)
 	typeName := getNodeType(node)
 	switch v := node.(type) {
 	case *ast.Link:
@@ -121,12 +144,35 @@ func (d *Document) getNodeRecur(node ast.Node, parent *DocumentItem, fn func(par
 		parent = di
 	case *ast.Heading:
 		//fmt.Printf("Heading %#v\r\n", v)
-		di := &DocumentItem{Type: typeName, HeaderName: v.HeadingID}
+		di := &DocumentItem{Type: typeName, HeaderName: v.HeadingID, Level: v.Level}
 		if fn != nil {
 			fn(parent, di, depth+1)
 		}
-		if parent != nil {
-			parent.DocumentItems = append(parent.DocumentItems, di)
+		current, ok := d.Current()
+		if !ok {
+			return errors.New("bad header level")
+		}
+		if current.Level >= di.Level {
+			level := current.Level
+			for level >= di.Level {
+				// поднимаемся на уровень выше
+				var ok bool
+				_, ok = d.Pop()
+				if !ok {
+					return errors.New("bad header level")
+				}
+				current, ok = d.Current()
+				if !ok {
+					return errors.New("bad header level")
+				}
+				level = current.Level
+			}
+			//parent = current
+			d.Push(di)
+			current.DocumentItems = append(current.DocumentItems, di)
+		} else {
+			d.Push(di)
+			current.DocumentItems = append(current.DocumentItems, di)
 		}
 		parent = di
 	case *ast.Text:
@@ -138,7 +184,7 @@ func (d *Document) getNodeRecur(node ast.Node, parent *DocumentItem, fn func(par
 		if parent != nil {
 			parent.DocumentItems = append(parent.DocumentItems, di)
 		}
-		parent = di
+		//parent = di
 	case *ast.HorizontalRule:
 		//fmt.Printf("HorizontalRule %#v\r\n", v)
 		di := &DocumentItem{Type: typeName, Text: string(v.Literal)}
@@ -155,9 +201,14 @@ func (d *Document) getNodeRecur(node ast.Node, parent *DocumentItem, fn func(par
 		if fn != nil {
 			fn(parent, di, depth+1)
 		}
-		if parent != nil {
-			parent.DocumentItems = append(parent.DocumentItems, di)
+		current, ok := d.Current()
+		if !ok {
+			return errors.New("bad header level")
 		}
+		current.DocumentItems = append(current.DocumentItems, di)
+		//if parent != nil {
+		//	parent.DocumentItems = append(parent.DocumentItems, di)
+		//}
 		parent = di
 	case *ast.Table:
 		//fmt.Printf("Table %#v\r\n", v)
@@ -206,6 +257,7 @@ func (d *Document) getNodeRecur(node ast.Node, parent *DocumentItem, fn func(par
 			fn(parent, di, depth+1)
 		}
 		d.DocumentItems = append(d.DocumentItems, di)
+		d.Push(di)
 		parent = di
 	default:
 		fmt.Printf("TypeName %v\r\n", typeName)
@@ -213,6 +265,7 @@ func (d *Document) getNodeRecur(node ast.Node, parent *DocumentItem, fn func(par
 	for _, child := range node.GetChildren() {
 		d.getNodeRecur(child, parent, fn, depth+1)
 	}
+	return nil
 }
 
 func ParseMD(md []byte, fn func(parent *DocumentItem, item *DocumentItem, depht int)) (*Document, error) {
@@ -222,7 +275,7 @@ func ParseMD(md []byte, fn func(parent *DocumentItem, item *DocumentItem, depht 
 	doc := p.Parse(md)
 	//printRecur(doc, "\t", 0)
 	d := &Document{}
-	d.getNodeRecur(doc, nil, fn, 0)
+	err := d.getNodeRecur(doc, nil, fn, 0)
 
-	return d, nil
+	return d, err
 }
