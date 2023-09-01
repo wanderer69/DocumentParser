@@ -2,12 +2,11 @@ package parser
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/gomarkdown/markdown/ast"
 	"github.com/gomarkdown/markdown/parser"
-
-	"fmt"
 )
 
 func getNodeType(node ast.Node) string {
@@ -167,7 +166,6 @@ func (d *Document) getNodeRecur(node ast.Node, parent *DocumentItem, fn func(par
 				}
 				level = current.Level
 			}
-			//parent = current
 			d.Push(di)
 			current.DocumentItems = append(current.DocumentItems, di)
 		} else {
@@ -184,7 +182,6 @@ func (d *Document) getNodeRecur(node ast.Node, parent *DocumentItem, fn func(par
 		if parent != nil {
 			parent.DocumentItems = append(parent.DocumentItems, di)
 		}
-		//parent = di
 	case *ast.HorizontalRule:
 		//fmt.Printf("HorizontalRule %#v\r\n", v)
 		di := &DocumentItem{Type: typeName, Text: string(v.Literal)}
@@ -206,9 +203,6 @@ func (d *Document) getNodeRecur(node ast.Node, parent *DocumentItem, fn func(par
 			return errors.New("bad header level")
 		}
 		current.DocumentItems = append(current.DocumentItems, di)
-		//if parent != nil {
-		//	parent.DocumentItems = append(parent.DocumentItems, di)
-		//}
 		parent = di
 	case *ast.Table:
 		//fmt.Printf("Table %#v\r\n", v)
@@ -273,7 +267,6 @@ func ParseMD(md []byte, fn func(parent *DocumentItem, item *DocumentItem, depht 
 	extensions := parser.CommonExtensions | parser.AutoHeadingIDs | parser.NoEmptyLineBeforeBlock
 	p := parser.NewWithExtensions(extensions)
 	doc := p.Parse(md)
-	//printRecur(doc, "\t", 0)
 	d := &Document{}
 	err := d.getNodeRecur(doc, nil, fn, 0)
 
